@@ -1,0 +1,2 @@
+# This directory is where Pillow saves generated slide images at runtime.
+# Files written here (slide_1.png ... slide_N.png) are not committed to version control.

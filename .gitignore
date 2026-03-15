@@ -1,0 +1,25 @@
+# Environment
+.env
+*.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Generated slide images
+backend/output/*.png
+backend/output/*.jpg
+
+# Local project data (prototype storage)
+backend/*.json
+
+# IDE
+.vscode/
+.idea/
+
+#youtube cookies
+backend/cookies.txt
