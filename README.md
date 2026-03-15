@@ -9,7 +9,7 @@ Converts a YouTube video into a ready-to-post Instagram carousel. Paste a URL, c
 | Layer | Technology |
 |---|---|
 | API | Python 3.10 · FastAPI · Uvicorn |
-| AI | OpenAI API (`gpt-4o` / `gpt-4o-mini`) |
+| AI | OpenAI API (`gpt-5-mini`) |
 | Transcript | `youtube-transcript-api` 1.2.4 |
 | Image Rendering | Pillow — 1080 × 1350 px PNG (Instagram portrait) |
 | Storage | Local JSON (prototype) |
