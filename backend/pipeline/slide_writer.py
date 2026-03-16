@@ -5,7 +5,7 @@ import os
 from openai import OpenAI
 
 from pipeline.validator import validate_slide
-from prompts.slide_prompt import build_slide_prompt, build_retry_prompt
+from prompts.slide_prompt import build_slide_prompt, build_batch_slides_prompt, build_retry_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +106,70 @@ def _generate_single_slide(
             "title": slide_plan_item.get("role", "Slide").title(),
             "body": slide_plan_item.get("idea", "Content coming soon."),
         }
+
+
+def generate_slides_batch(slide_plans: list[dict], tone: str) -> list[dict]:
+    """
+    Generate copy for all slides in a single API call.
+
+    Falls back to per-slide generation if the batch response is unparseable.
+    One retry attempt if any slides fail validation.
+    """
+    client = _get_client()
+    model = os.getenv("OPENAI_MODEL", "gpt-4o")
+
+    def _call_batch(plans: list[dict]) -> list[dict]:
+        messages = build_batch_slides_prompt(plans, tone)
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                response_format={"type": "json_object"},
+            )
+        except Exception as exc:
+            raise RuntimeError(f"OpenAI batch slide call failed: {exc}") from exc
+
+        raw = response.choices[0].message.content
+        logger.debug("Batch slides raw response: %s", raw)
+
+        try:
+            result = _parse_json_response(raw)
+            return result.get("slides", [])
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Batch slide response was not valid JSON: {raw!r}") from exc
+
+    raw_slides = _call_batch(slide_plans)
+
+    # Validate and collect failures
+    validated = []
+    failures = []
+    plan_by_index = {p["index"]: p for p in slide_plans}
+
+    for raw in raw_slides:
+        index = raw.get("index")
+        is_valid, error = validate_slide(raw)
+        if is_valid:
+            validated.append({"index": index, "title": raw["title"].strip(), "body": raw["body"].strip()})
+        else:
+            logger.warning("Batch slide %s failed validation (%s) — will retry", index, error)
+            failures.append(plan_by_index.get(index, {"index": index, "role": "slide", "idea": ""}))
+
+    # One retry for any failing slides
+    if failures:
+        logger.info("Retrying %d failed slide(s) individually", len(failures))
+        for plan_item in failures:
+            slide = _generate_single_slide(client, model, plan_item, tone)
+            validated.append(slide)
+
+    # Fill in any slides missing from the response entirely
+    returned_indices = {s["index"] for s in validated}
+    for plan_item in slide_plans:
+        if plan_item["index"] not in returned_indices:
+            logger.warning("Slide %d missing from batch response — generating individually", plan_item["index"])
+            validated.append(_generate_single_slide(client, model, plan_item, tone))
+
+    validated.sort(key=lambda s: s["index"])
+    return validated
 
 
 def generate_slides(slide_plans: list[dict], tone: str) -> list[dict]:

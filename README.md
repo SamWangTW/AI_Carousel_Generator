@@ -76,6 +76,7 @@ Full pipeline: YouTube URL → slide images + caption + quality score.
 | `video_url` | string | — | Any YouTube URL or bare video ID |
 | `slide_count` | int | `6` | `2` – `12` |
 | `tone` | string | `"auto"` | `auto` · `educational` · `motivational` · `promotional` |
+| `score_quality` | bool | `false` | `true` to enable LLM quality scoring |
 
 > When `tone` is `"auto"` (the default), the pipeline analyses the transcript and picks the best tone automatically. The detected tone and its reason are returned in the response so you can see why it was chosen.
 
@@ -134,44 +135,38 @@ POST /generate-carousel
 └────────┬────────┘
          │ clean text
          ▼
-┌──────────────────────┐
-│   2. Tone Detection  │  (only when tone="auto") LLM picks best tone
-│   (optional)         │  returns: {tone, reason}
-└────────┬─────────────┘
-         │ tone + reason
-         ▼
-┌─────────────────┐
-│   3. Planner    │  LLM structures carousel: Hook → Problem → Insight
-└────────┬────────┘  → Support → Example → CTA
-         │ slide plan [{index, role, idea}, ...]
-         ▼
-┌──────────────────────┐
-│   4. Slide Writer    │  LLM writes title + body (max 20 words) per slide
-│   + Validator/Retry  │  Validates each slide; retries up to 2× with
-└────────┬─────────────┘  stricter prompt on failure
-         │ validated slides [{index, title, body}, ...]
-         ▼
-┌─────────────────┐
-│  5. Caption     │  LLM generates caption, hashtags, and CTA
-│     Writer      │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  6. Quality     │  LLM self-evaluates hook strength, clarity,
-│     Scorer      │  and CTA effectiveness (scores 1–10)
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  7. Renderer    │  Pillow draws 1080×1350 px PNG per slide
-│  (Pillow)       │  Saved to backend/output/{project_id}/
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  8. Storage     │  Project metadata saved as JSON in backend/projects/
-└─────────────────┘
+┌──────────────────────────────────────────────┐  ← parallel
+│  2a. Tone Detection    │  2b. Planner         │
+│  (tone="auto" only)    │  Structures carousel │
+│  LLM picks best tone   │  Hook → Problem →    │
+│  returns {tone,reason} │  Insight → CTA       │
+└────────────────────────┴──────────┬───────────┘
+                                    │ slide plan [{index, role, idea}, ...]
+                                    ▼
+┌──────────────────────────────────────────────┐  ← parallel
+│  3a. Slide Writer          │  3b. Caption     │
+│  + Validator/Retry         │      Writer      │
+│  Batch LLM call for all    │  LLM generates   │
+│  slides; validates each;   │  caption,        │
+│  retries failures          │  hashtags, CTA   │
+└────────────────────────────┴──────────┬───────┘
+                                        │
+                                        ▼
+                             ┌─────────────────┐
+                             │  4. Quality     │  (optional, score_quality=true)
+                             │     Scorer      │  LLM self-evaluates hook,
+                             └────────┬────────┘  clarity, CTA (scores 1–10)
+                                      │
+                                      ▼
+                             ┌─────────────────┐
+                             │  5. Renderer    │  Pillow draws 1080×1350 px PNG
+                             │  (Pillow)       │  backend/output/{project_id}/
+                             └────────┬────────┘
+                                      │
+                                      ▼
+                             ┌─────────────────┐
+                             │  6. Storage     │  Project JSON → backend/projects/
+                             └─────────────────┘
 ```
 
 **File layout**
@@ -201,20 +196,29 @@ backend/
 
 ## Design Decisions
 
-**Sequential pipeline over a single mega-prompt**
+**Staged pipeline over a single mega-prompt**
 Each stage has a single, well-scoped job. This makes individual stages easy to tune, retry, and replace without touching the rest of the pipeline. A single prompt producing everything at once is harder to debug when one part of the output is wrong.
+
+**Parallel execution where possible**
+Tone detection and planning run concurrently (both only need the transcript). Slide writing and caption generation also run concurrently (both only need the plan). This cuts the wall-clock time of the two most expensive LLM steps roughly in half.
+
+**Per-stage timing logs**
+Every pipeline stage logs its elapsed time to the terminal as it completes, followed by a one-line summary of the full run. This makes it easy to spot which stage is the bottleneck without adding any external tooling.
 
 **Validation + retry loop on slide copy**
 Every slide is validated against hard constraints (5–20 word body, non-empty title) before being accepted. If a slide fails, the prompt is re-sent with the specific constraint appended. This removes an entire class of silent failures where the LLM produces technically structured but out-of-spec content.
+
+**Batch slide generation with per-slide fallback**
+All slides are requested in a single API call to reduce latency and token overhead. If any slides fail validation, only those are retried individually — the rest are kept, avoiding a full regeneration.
 
 **Prompts separated from pipeline logic**
 All LLM prompt templates live in `backend/prompts/`. Changing the tone or tightening a constraint never requires touching pipeline code. This also makes A/B testing prompts straightforward.
 
 **Tone as a first-class parameter**
-`educational`, `motivational`, and `promotional` tones are injected at prompt-construction time across every stage (planning, slide copy, caption). A single `tone` value on the request shapes the entire output end-to-end without any post-processing.
+`educational`, `motivational`, and `promotional` tones are injected at prompt-construction time across every stage (slide copy, caption). A single `tone` value on the request shapes the entire output end-to-end without any post-processing. The planner is intentionally tone-agnostic so it can run in parallel with tone detection.
 
-**LLM quality self-evaluation**
-The quality scorer asks the same model to critique its own output after generation. This surfaces obviously weak hooks or vague CTAs without requiring a second model or human review step, which is practical for a prototype where fast iteration matters more than perfect scoring.
+**Optional LLM quality self-evaluation**
+The quality scorer asks the same model to critique its own output after generation. It is opt-in (`score_quality=true`) to keep the default response fast. This surfaces obviously weak hooks or vague CTAs without requiring a second model or human review step.
 
 **Browser cookies for YouTube transcript access**
 YouTube's bot detection blocks programmatic transcript requests from non-browser clients. Rather than routing through a proxy service, the API accepts a Netscape-format cookies file exported from a logged-in browser session. This keeps the setup self-contained with no third-party dependency.

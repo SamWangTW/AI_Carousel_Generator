@@ -4,6 +4,7 @@
   "main": "index.js",
   "scripts": {
     "start": "expo start",
+    "start:ci": "cross-env CI=1 expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web"
@@ -23,6 +24,7 @@
   },
   "private": true,
   "devDependencies": {
-    "babel-preset-expo": "^55.0.11"
+    "babel-preset-expo": "^55.0.11",
+    "cross-env": "^10.1.0"
   }
 }

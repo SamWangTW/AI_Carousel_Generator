@@ -42,9 +42,7 @@ TRANSCRIPT:
     ]
 
 
-def build_planner_prompt(transcript: str, slide_count: int, tone: str) -> list[dict]:
-    tone_instruction = TONE_INSTRUCTIONS.get(tone, TONE_INSTRUCTIONS["educational"])
-
+def build_planner_prompt(transcript: str, slide_count: int) -> list[dict]:
     roles = DEFAULT_SLIDE_ROLES[:slide_count]
     if len(roles) < slide_count:
         roles += ["supporting idea"] * (slide_count - len(roles))
@@ -58,13 +56,11 @@ def build_planner_prompt(transcript: str, slide_count: int, tone: str) -> list[d
 
     user_message = f"""Analyze the following YouTube video transcript and plan a {slide_count}-slide Instagram carousel post.
 
-TONE: {tone}
-TONE INSTRUCTION: {tone_instruction}
-
 SLIDE STRUCTURE TO FOLLOW:
 {roles_list}
 
 For each slide, extract the most relevant idea from the transcript that fits that slide's role.
+Focus on the clearest, most impactful idea — tone and phrasing will be applied in a later step.
 
 Return a JSON object with this exact structure:
 {{

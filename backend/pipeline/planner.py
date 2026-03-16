@@ -67,14 +67,14 @@ def detect_tone(transcript: str) -> dict:
     return {"tone": tone, "reason": result.get("reason", "")}
 
 
-def plan_carousel(transcript: str, slide_count: int, tone: str) -> dict:
+def plan_carousel(transcript: str, slide_count: int) -> dict:
     """
     Use the LLM to analyse the transcript and produce a structured carousel plan.
+    Tone-agnostic: tone is applied at slide-writing and caption stages.
 
     Args:
         transcript: Cleaned transcript text from transcript.py.
         slide_count: Desired number of slides.
-        tone: One of "educational", "motivational", "promotional".
 
     Returns:
         Dict with keys:
@@ -86,7 +86,7 @@ def plan_carousel(transcript: str, slide_count: int, tone: str) -> dict:
     """
     client = _get_client()
     model = os.getenv("OPENAI_MODEL", "gpt-4o")
-    messages = build_planner_prompt(transcript, slide_count, tone)
+    messages = build_planner_prompt(transcript, slide_count)
 
     try:
         response = client.chat.completions.create(

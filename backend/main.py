@@ -1,6 +1,8 @@
+import asyncio
 import json
 import logging
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,10 +16,10 @@ from pydantic import BaseModel, HttpUrl
 
 load_dotenv()
 
-from pipeline.caption_writer import generate_caption
+from pipeline.caption_writer import generate_caption, generate_caption_from_plan
 from pipeline.planner import detect_tone, plan_carousel
 from pipeline.renderer import render_slides
-from pipeline.slide_writer import generate_slides
+from pipeline.slide_writer import generate_slides_batch
 from pipeline.transcript import fetch_transcript
 from pipeline.validator import validate_slide
 
@@ -42,6 +44,7 @@ class GenerateCarouselRequest(BaseModel):
     video_url: str
     slide_count: int = 6
     tone: str = "auto"
+    score_quality: bool = False
 
 
 class RegenerateSlideRequest(BaseModel):
@@ -78,8 +81,8 @@ def _load_project(project_id: str) -> dict:
 
 # ── Quality scoring ────────────────────────────────────────────────────────────
 
-def _score_quality(slides: list[dict], caption: str, tone: str) -> dict:
-    """Ask the LLM to self-evaluate the carousel quality."""
+def _score_quality(slides: list[dict], tone: str) -> dict:
+    """Ask the LLM to self-evaluate the carousel quality based on slides alone."""
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     model = os.getenv("OPENAI_MODEL", "gpt-4o")
 
@@ -102,7 +105,6 @@ def _score_quality(slides: list[dict], caption: str, tone: str) -> dict:
 SLIDES:
 {slide_summary}
 
-CAPTION: {caption}
 TONE: {tone}
 
 Score each dimension from 1 to 10:
@@ -153,20 +155,30 @@ async def generate_carousel(req: GenerateCarouselRequest):
 
     project_id = str(uuid.uuid4())
     project_output_dir = str(OUTPUT_DIR / project_id)
+    pipeline_start = time.perf_counter()
+    timings = {}
 
     # 1. Transcript
     logger.info("[%s] Fetching transcript for %s", project_id, req.video_url)
+    t0 = time.perf_counter()
     try:
         transcript = fetch_transcript(req.video_url)
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    timings["transcript"] = round(time.perf_counter() - t0, 2)
+    logger.info("[%s] Transcript fetched in %.2fs", project_id, timings["transcript"])
 
-    # 2. Tone detection (when tone is "auto")
+    # 2. Tone detection + planning in parallel
+    #    Planning is tone-agnostic; tone is applied at slide-writing time.
     tone_reason = None
+    t0 = time.perf_counter()
     if req.tone == "auto":
-        logger.info("[%s] Detecting tone from transcript", project_id)
+        logger.info("[%s] Detecting tone + planning in parallel", project_id)
         try:
-            tone_result = detect_tone(transcript)
+            (tone_result, plan) = await asyncio.gather(
+                asyncio.to_thread(detect_tone, transcript),
+                asyncio.to_thread(plan_carousel, transcript, req.slide_count),
+            )
         except RuntimeError as exc:
             raise HTTPException(status_code=502, detail=str(exc))
         tone = tone_result["tone"]
@@ -174,38 +186,60 @@ async def generate_carousel(req: GenerateCarouselRequest):
         logger.info("[%s] Detected tone: %s — %s", project_id, tone, tone_reason)
     else:
         tone = req.tone
-
-    # 3. Planning
-    logger.info("[%s] Planning carousel structure", project_id)
-    try:
-        plan = plan_carousel(transcript, req.slide_count, tone)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+        logger.info("[%s] Planning carousel structure", project_id)
+        try:
+            plan = await asyncio.to_thread(plan_carousel, transcript, req.slide_count)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+    timings["tone_and_planning"] = round(time.perf_counter() - t0, 2)
+    logger.info("[%s] Tone detection + planning done in %.2fs", project_id, timings["tone_and_planning"])
 
     slide_plans = plan["slides"]
 
-    # 4. Slide copy generation (includes validation + retry)
-    logger.info("[%s] Generating slide copy", project_id)
+    # 3. Slides + caption in parallel
+    #    Caption uses the plan (role+idea) so it doesn't need slides first.
+    logger.info("[%s] Generating slides (batch) + caption in parallel", project_id)
+    t0 = time.perf_counter()
     try:
-        slides = generate_slides(slide_plans, tone)
+        slides, caption_data = await asyncio.gather(
+            asyncio.to_thread(generate_slides_batch, slide_plans, tone),
+            asyncio.to_thread(generate_caption_from_plan, slide_plans, tone),
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
+    timings["slides_and_caption"] = round(time.perf_counter() - t0, 2)
+    logger.info("[%s] Slides + caption done in %.2fs", project_id, timings["slides_and_caption"])
 
-    # 5. Caption generation
-    logger.info("[%s] Generating caption", project_id)
-    try:
-        caption_data = generate_caption(slides, tone)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
-
-    # 6. Quality scoring
-    logger.info("[%s] Scoring quality", project_id)
-    quality_score = _score_quality(slides, caption_data["caption"], tone)
+    # 4. Quality scoring (optional)
+    quality_score = None
+    if req.score_quality:
+        logger.info("[%s] Scoring quality", project_id)
+        t0 = time.perf_counter()
+        quality_score = await asyncio.to_thread(_score_quality, slides, tone)
+        timings["quality_scoring"] = round(time.perf_counter() - t0, 2)
+        logger.info("[%s] Quality scoring done in %.2fs", project_id, timings["quality_scoring"])
 
     # 7. Render slides
     logger.info("[%s] Rendering slide images", project_id)
+    t0 = time.perf_counter()
     image_paths = render_slides(slides, project_output_dir)
+    timings["rendering"] = round(time.perf_counter() - t0, 2)
+    logger.info("[%s] Rendering done in %.2fs", project_id, timings["rendering"])
     relative_image_urls = [f"/output/{project_id}/slide_{s['index']}.png" for s in slides]
+
+    timings["total"] = round(time.perf_counter() - pipeline_start, 2)
+    logger.info(
+        "[%s] Pipeline complete in %.2fs — "
+        "transcript: %ss | tone+planning(parallel): %ss | "
+        "slides+caption(parallel): %ss | scoring: %ss | rendering: %ss",
+        project_id,
+        timings["total"],
+        timings["transcript"],
+        timings["tone_and_planning"],
+        timings["slides_and_caption"],
+        timings.get("quality_scoring", "skipped"),
+        timings["rendering"],
+    )
 
     # 8. Save project
     project = {
