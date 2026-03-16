@@ -75,7 +75,9 @@ Full pipeline: YouTube URL → slide images + caption + quality score.
 |---|---|---|---|
 | `video_url` | string | — | Any YouTube URL or bare video ID |
 | `slide_count` | int | `6` | `2` – `12` |
-| `tone` | string | `"educational"` | `educational` · `motivational` · `promotional` |
+| `tone` | string | `"auto"` | `auto` · `educational` · `motivational` · `promotional` |
+
+> When `tone` is `"auto"` (the default), the pipeline analyses the transcript and picks the best tone automatically. The detected tone and its reason are returned in the response so you can see why it was chosen.
 
 **Response**
 
@@ -83,6 +85,8 @@ Full pipeline: YouTube URL → slide images + caption + quality score.
 {
   "project_id": "1b43c1e7-873c-4aed-907b-e523d685a9b4",
   "main_topic": "How to get your first online coaching clients",
+  "tone": "educational",
+  "tone_reason": "The video teaches a step-by-step outreach process with specific tactics and examples.",
   "slides": [
     { "index": 1, "title": "Stop Waiting for Clients", "body": "Most coaches never get clients because they wait to be found. You need a system." },
     { "index": 2, "title": "The Real Problem", "body": "You have the skills. You lack a repeatable outreach process that converts strangers." },
@@ -130,37 +134,43 @@ POST /generate-carousel
 └────────┬────────┘
          │ clean text
          ▼
+┌──────────────────────┐
+│   2. Tone Detection  │  (only when tone="auto") LLM picks best tone
+│   (optional)         │  returns: {tone, reason}
+└────────┬─────────────┘
+         │ tone + reason
+         ▼
 ┌─────────────────┐
-│   2. Planner    │  LLM structures carousel: Hook → Problem → Insight
+│   3. Planner    │  LLM structures carousel: Hook → Problem → Insight
 └────────┬────────┘  → Support → Example → CTA
          │ slide plan [{index, role, idea}, ...]
          ▼
 ┌──────────────────────┐
-│   3. Slide Writer    │  LLM writes title + body (max 20 words) per slide
+│   4. Slide Writer    │  LLM writes title + body (max 20 words) per slide
 │   + Validator/Retry  │  Validates each slide; retries up to 2× with
 └────────┬─────────────┘  stricter prompt on failure
          │ validated slides [{index, title, body}, ...]
          ▼
 ┌─────────────────┐
-│  4. Caption     │  LLM generates caption, hashtags, and CTA
+│  5. Caption     │  LLM generates caption, hashtags, and CTA
 │     Writer      │
 └────────┬────────┘
          │
          ▼
 ┌─────────────────┐
-│  5. Quality     │  LLM self-evaluates hook strength, clarity,
+│  6. Quality     │  LLM self-evaluates hook strength, clarity,
 │     Scorer      │  and CTA effectiveness (scores 1–10)
 └────────┬────────┘
          │
          ▼
 ┌─────────────────┐
-│  6. Renderer    │  Pillow draws 1080×1350 px PNG per slide
+│  7. Renderer    │  Pillow draws 1080×1350 px PNG per slide
 │  (Pillow)       │  Saved to backend/output/{project_id}/
 └────────┬────────┘
          │
          ▼
 ┌─────────────────┐
-│  7. Storage     │  Project metadata saved as JSON in backend/projects/
+│  8. Storage     │  Project metadata saved as JSON in backend/projects/
 └─────────────────┘
 ```
 

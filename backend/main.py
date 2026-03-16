@@ -15,7 +15,7 @@ from pydantic import BaseModel, HttpUrl
 load_dotenv()
 
 from pipeline.caption_writer import generate_caption
-from pipeline.planner import plan_carousel
+from pipeline.planner import detect_tone, plan_carousel
 from pipeline.renderer import render_slides
 from pipeline.slide_writer import generate_slides
 from pipeline.transcript import fetch_transcript
@@ -41,7 +41,7 @@ app.mount("/output", StaticFiles(directory=str(OUTPUT_DIR)), name="output")
 class GenerateCarouselRequest(BaseModel):
     video_url: str
     slide_count: int = 6
-    tone: str = "educational"
+    tone: str = "auto"
 
 
 class RegenerateSlideRequest(BaseModel):
@@ -148,8 +148,8 @@ async def generate_carousel(req: GenerateCarouselRequest):
     """
     if req.slide_count < 2 or req.slide_count > 12:
         raise HTTPException(status_code=400, detail="slide_count must be between 2 and 12.")
-    if req.tone not in ("educational", "motivational", "promotional"):
-        raise HTTPException(status_code=400, detail="tone must be educational, motivational, or promotional.")
+    if req.tone not in ("auto", "educational", "motivational", "promotional"):
+        raise HTTPException(status_code=400, detail="tone must be auto, educational, motivational, or promotional.")
 
     project_id = str(uuid.uuid4())
     project_output_dir = str(OUTPUT_DIR / project_id)
@@ -161,43 +161,58 @@ async def generate_carousel(req: GenerateCarouselRequest):
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    # 2. Planning
+    # 2. Tone detection (when tone is "auto")
+    tone_reason = None
+    if req.tone == "auto":
+        logger.info("[%s] Detecting tone from transcript", project_id)
+        try:
+            tone_result = detect_tone(transcript)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+        tone = tone_result["tone"]
+        tone_reason = tone_result["reason"]
+        logger.info("[%s] Detected tone: %s — %s", project_id, tone, tone_reason)
+    else:
+        tone = req.tone
+
+    # 3. Planning
     logger.info("[%s] Planning carousel structure", project_id)
     try:
-        plan = plan_carousel(transcript, req.slide_count, req.tone)
+        plan = plan_carousel(transcript, req.slide_count, tone)
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
     slide_plans = plan["slides"]
 
-    # 3. Slide copy generation (includes validation + retry)
+    # 4. Slide copy generation (includes validation + retry)
     logger.info("[%s] Generating slide copy", project_id)
     try:
-        slides = generate_slides(slide_plans, req.tone)
+        slides = generate_slides(slide_plans, tone)
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
-    # 4. Caption generation
+    # 5. Caption generation
     logger.info("[%s] Generating caption", project_id)
     try:
-        caption_data = generate_caption(slides, req.tone)
+        caption_data = generate_caption(slides, tone)
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
-    # 5. Quality scoring
+    # 6. Quality scoring
     logger.info("[%s] Scoring quality", project_id)
-    quality_score = _score_quality(slides, caption_data["caption"], req.tone)
+    quality_score = _score_quality(slides, caption_data["caption"], tone)
 
-    # 6. Render slides
+    # 7. Render slides
     logger.info("[%s] Rendering slide images", project_id)
     image_paths = render_slides(slides, project_output_dir)
     relative_image_urls = [f"/output/{project_id}/slide_{s['index']}.png" for s in slides]
 
-    # 7. Save project
+    # 8. Save project
     project = {
         "project_id": project_id,
         "video_url": req.video_url,
-        "tone": req.tone,
+        "tone": tone,
+        "tone_reason": tone_reason,
         "slide_count": req.slide_count,
         "main_topic": plan.get("main_topic", ""),
         "transcript": transcript,
@@ -217,6 +232,8 @@ async def generate_carousel(req: GenerateCarouselRequest):
     return {
         "project_id": project_id,
         "main_topic": project["main_topic"],
+        "tone": tone,
+        "tone_reason": tone_reason,
         "slides": slides,
         "caption": caption_data["caption"],
         "hashtags": caption_data["hashtags"],
