@@ -1,0 +1,23 @@
+{
+  "name": "ai_carousel_generator",
+  "version": "1.0.0",
+  "description": "Converts a YouTube video into a ready-to-post Instagram carousel. Paste a URL, choose a tone, and get back slide images, a caption, hashtags, and a quality score — all in one API call.",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently --names \"API,APP\" --prefix-colors \"cyan,magenta\" \"cd backend && C:/Users/User/AppData/Local/Programs/Python/Python310/python.exe -m uvicorn main:app --reload --host 0.0.0.0 --port 8000\" \"cd mobile && npx expo start\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SamWangTW/AI_Carousel_Generator.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/SamWangTW/AI_Carousel_Generator/issues"
+  },
+  "homepage": "https://github.com/SamWangTW/AI_Carousel_Generator#readme",
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

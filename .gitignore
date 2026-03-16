@@ -11,11 +11,14 @@ venv/
 *.egg-info/
 
 # Generated slide images
-backend/output/*.png
-backend/output/*.jpg
+backend/output/
 
 # Local project data (prototype storage)
-backend/*.json
+backend/projects/
+
+# Node (root dev tooling + mobile)
+node_modules/
+package-lock.json
 
 # IDE
 .vscode/
