@@ -221,6 +221,6 @@ See `backend/.env.example` for the full list. Required for local development:
 | Variable | Description |
 |---|---|
 | `OPENAI_API_KEY` | Your OpenAI API key |
-| `OPENAI_MODEL` | Model to use — `gpt-4o` or `gpt-4o-mini` |
+| `OPENAI_MODEL` | Model to use — `gpt-5-mini` |
 | `YOUTUBE_COOKIES_FILE` | Path to a Netscape `cookies.txt` exported from your browser |
 | `OUTPUT_DIR` | Directory for rendered slide images (default: `output`) |
