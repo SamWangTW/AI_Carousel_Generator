@@ -23,7 +23,7 @@ TONE INSTRUCTION: {tone_instruction}
 
 REQUIREMENTS:
 - caption: 1–3 engaging sentences that hook the reader and summarise the carousel value
-- hashtags: 7–10 relevant hashtags as a JSON array of strings (include the # symbol)
+- hashtags: exactly 5 relevant hashtags as a JSON array of strings (include the # symbol)
 - cta: one punchy call-to-action line (e.g. "Save this for later", "Share with someone who needs this")
 
 Return a JSON object with this exact structure:
@@ -61,7 +61,7 @@ TONE INSTRUCTION: {tone_instruction}
 
 REQUIREMENTS:
 - caption: 1–3 engaging sentences that hook the reader and summarise the carousel value
-- hashtags: 7–10 relevant hashtags as a JSON array of strings (include the # symbol)
+- hashtags: exactly 5 relevant hashtags as a JSON array of strings (include the # symbol)
 - cta: one punchy call-to-action line (e.g. "Save this for later", "Share with someone who needs this")
 
 Return a JSON object with this exact structure:

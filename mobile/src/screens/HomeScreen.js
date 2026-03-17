@@ -30,7 +30,7 @@ export default function HomeScreen({ navigation }) {
     setLoading(true);
     try {
       const result = await generateCarousel({ videoUrl: trimmed, slideCount });
-      navigation.navigate('Preview', { result });
+      navigation.navigate('Results', { result });
     } catch (err) {
       Alert.alert('Error', err.message || 'Something went wrong. Please try again.');
     } finally {

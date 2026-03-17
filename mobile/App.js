@@ -5,7 +5,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import HomeScreen from './src/screens/HomeScreen';
-import PreviewScreen from './src/screens/PreviewScreen';
+import ResultsScreen from './src/screens/ResultsScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -27,8 +27,8 @@ export default function App() {
             options={{ headerShown: false }}
           />
           <Stack.Screen
-            name="Preview"
-            component={PreviewScreen}
+            name="Results"
+            component={ResultsScreen}
             options={{ title: 'Your Carousel' }}
           />
         </Stack.Navigator>

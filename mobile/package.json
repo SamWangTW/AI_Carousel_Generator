@@ -5,16 +5,19 @@
   "scripts": {
     "start": "expo start",
     "start:ci": "cross-env CI=1 expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web"
   },
   "dependencies": {
     "@react-navigation/native": "^7.1.33",
     "@react-navigation/native-stack": "^7.14.5",
     "expo": "~55.0.6",
+    "expo-clipboard": "~55.0.8",
+    "expo-file-system": "~55.0.10",
     "expo-image": "~55.0.6",
     "expo-media-library": "~55.0.9",
+    "expo-sharing": "~55.0.11",
     "expo-status-bar": "~55.0.4",
     "react": "19.2.0",
     "react-native": "0.83.2",
@@ -24,7 +27,9 @@
   },
   "private": true,
   "devDependencies": {
+    "@types/react": "~19.2.10",
     "babel-preset-expo": "^55.0.11",
-    "cross-env": "^10.1.0"
+    "cross-env": "^10.1.0",
+    "typescript": "~5.9.2"
   }
 }
