@@ -14,31 +14,49 @@ Converts a YouTube video into a ready-to-post Instagram carousel. Paste a URL, c
 | Image Rendering | Pillow — 1080 × 1350 px PNG (Instagram portrait) |
 | Storage | Local JSON (prototype) |
 | Containerisation | Docker |
+| Mobile | React Native · Expo Go |
 
 ---
 
 ## How to Run Locally
 
-**Prerequisites:** Python 3.10+, an OpenAI API key with billing enabled.
+**Prerequisites:** Python 3.10+, Node.js, an OpenAI API key with billing enabled, and the Expo Go app on your phone.
+
+### Run everything (backend + mobile) with one command
 
 ```bash
-# 1. Clone and enter the backend directory
-git clone <repo-url>
-cd AI_Carousel_Generator/backend
+# From the project root
+npm install
+npm run dev
+```
 
-# 2. Install dependencies
+This starts the FastAPI backend on port 8000 and the Expo bundler together. Backend logs appear with an `[API]` prefix. Scan the QR code with Expo Go to open the app.
+
+You can also run them separately:
+
+```bash
+npm run api     # FastAPI backend only
+npm run mobile  # Expo bundler only
+```
+
+### Backend only (manual setup)
+
+```bash
+cd backend
+
+# 1. Install dependencies
 pip install -r requirements.txt
 
-# 3. Configure environment
+# 2. Configure environment
 cp .env.example .env
 # Open .env and set OPENAI_API_KEY and OPENAI_MODEL
 
-# 4. (Required) Export YouTube cookies to bypass bot detection
+# 3. (Required) Export YouTube cookies to bypass bot detection
 #    Install the "Get cookies.txt LOCALLY" browser extension,
 #    visit youtube.com while logged in, export → save as backend/cookies.txt
 #    Then set in .env: YOUTUBE_COOKIES_FILE=cookies.txt
 
-# 5. Start the server
+# 4. Start the server
 uvicorn main:app --reload
 ```
 
@@ -55,6 +73,21 @@ docker run -p 8080:8080 --env-file .env ai-carousel-generator
 
 ---
 
+## Mobile App
+
+The Expo Go app connects to your local backend over Wi-Fi (both devices must be on the same network).
+
+**Screens:**
+
+- **Home** — enter a YouTube URL, choose slide count (2–12), tap Generate. Tone is detected automatically.
+- **Results** — horizontal carousel preview of all slides, share the active slide via the native share sheet, copy caption and hashtags to clipboard.
+
+**Share flow:** The "Share Slide X of Y" button downloads the currently visible slide to the device cache and opens the native share sheet (Instagram, WhatsApp, Save to Photos, etc.). Swipe to the next slide and tap again to share it.
+
+> Expo Go does not support saving directly to the camera roll on Android due to OS-level permission restrictions. Use a development build for that feature.
+
+---
+
 ## API Reference
 
 ### `POST /generate-carousel`
@@ -67,7 +100,8 @@ Full pipeline: YouTube URL → slide images + caption + quality score.
 {
   "video_url": "https://www.youtube.com/watch?v=iJYhGD96NxA",
   "slide_count": 6,
-  "tone": "educational"
+  "tone": "auto",
+  "score_quality": false
 }
 ```
 
@@ -78,7 +112,7 @@ Full pipeline: YouTube URL → slide images + caption + quality score.
 | `tone` | string | `"auto"` | `auto` · `educational` · `motivational` · `promotional` |
 | `score_quality` | bool | `false` | `true` to enable LLM quality scoring |
 
-> When `tone` is `"auto"` (the default), the pipeline analyses the transcript and picks the best tone automatically. The detected tone and its reason are returned in the response so you can see why it was chosen.
+> When `tone` is `"auto"` (the default), the pipeline analyses the transcript and picks the best tone automatically. The detected tone and its reason are returned in the response.
 
 **Response**
 
@@ -99,18 +133,16 @@ Full pipeline: YouTube URL → slide images + caption + quality score.
   "caption": "Most coaches are broke because they're waiting to be discovered. Here's the outreach system that generated $3M in coaching revenue 👇",
   "hashtags": ["#onlinecoaching", "#coachingbusiness", "#clientattraction", "#digitalcoach", "#growyourbusiness"],
   "cta": "Save this post and send your first DM today.",
-  "quality_score": {
-    "hook_strength": 8,
-    "content_clarity": 9,
-    "cta_effectiveness": 8,
-    "overall": 8.3
-  },
+  "quality_score": null,
   "slide_image_urls": [
     "/output/1b43c1e7-.../slide_1.png",
     "/output/1b43c1e7-.../slide_2.png"
   ]
 }
 ```
+
+> `quality_score` is `null` unless `score_quality: true` is passed in the request.
+> `hashtags` always contains exactly 5 tags.
 
 ### Other Endpoints
 
@@ -147,8 +179,8 @@ POST /generate-carousel
 │  3a. Slide Writer          │  3b. Caption     │
 │  + Validator/Retry         │      Writer      │
 │  Batch LLM call for all    │  LLM generates   │
-│  slides; validates each;   │  caption,        │
-│  retries failures          │  hashtags, CTA   │
+│  slides; validates each;   │  caption (5       │
+│  retries failures          │  hashtags), CTA  │
 └────────────────────────────┴──────────┬───────┘
                                         │
                                         ▼
@@ -172,24 +204,39 @@ POST /generate-carousel
 **File layout**
 
 ```
-backend/
-├── main.py                   # FastAPI app, route handlers, quality scorer
-├── pipeline/
-│   ├── transcript.py         # YouTube transcript retrieval
-│   ├── planner.py            # Carousel structure planning
-│   ├── slide_writer.py       # Slide copy generation + retry loop
-│   ├── caption_writer.py     # Caption + hashtag generation
-│   ├── renderer.py           # Pillow image rendering
-│   └── validator.py          # Slide validation rules
-├── prompts/
-│   ├── planner_prompt.py     # Prompt template for planning
-│   ├── slide_prompt.py       # Prompt template for slide copy + retry
-│   └── caption_prompt.py     # Prompt template for captions
-├── output/                   # Generated slide images (git-ignored)
-├── projects/                 # Saved project JSON files (git-ignored)
-├── Dockerfile
-├── requirements.txt
-└── .env.example
+AI_Carousel_Generator/
+├── backend/
+│   ├── main.py                   # FastAPI app, route handlers, quality scorer
+│   ├── pipeline/
+│   │   ├── transcript.py         # YouTube transcript retrieval
+│   │   ├── planner.py            # Carousel structure planning
+│   │   ├── slide_writer.py       # Slide copy generation + retry loop
+│   │   ├── caption_writer.py     # Caption + hashtag generation
+│   │   ├── renderer.py           # Pillow image rendering
+│   │   └── validator.py          # Slide validation rules
+│   ├── prompts/
+│   │   ├── planner_prompt.py     # Prompt template for planning
+│   │   ├── slide_prompt.py       # Prompt template for slide copy + retry
+│   │   └── caption_prompt.py     # Prompt template for captions
+│   ├── output/                   # Generated slide images (git-ignored)
+│   ├── projects/                 # Saved project JSON files (git-ignored)
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   └── .env.example
+├── mobile/
+│   ├── src/
+│   │   ├── screens/
+│   │   │   ├── HomeScreen.js     # URL input, slide count, generate button
+│   │   │   └── ResultsScreen.tsx # Carousel preview, share, copy caption/hashtags
+│   │   ├── components/
+│   │   │   └── SlideCounter.js   # ± slide count picker
+│   │   └── api/
+│   │       └── carousel.js       # generateCarousel() API client
+│   ├── App.js                    # Navigation stack
+│   └── app.json                  # Expo config
+├── scripts/
+│   └── dev.js                    # Starts backend + Expo together
+└── package.json                  # Root scripts: dev, api, mobile
 ```
 
 ---
@@ -219,6 +266,12 @@ All LLM prompt templates live in `backend/prompts/`. Changing the tone or tighte
 
 **Optional LLM quality self-evaluation**
 The quality scorer asks the same model to critique its own output after generation. It is opt-in (`score_quality=true`) to keep the default response fast. This surfaces obviously weak hooks or vague CTAs without requiring a second model or human review step.
+
+**Fixed hashtag count**
+The caption prompt enforces exactly 5 hashtags. Instagram's algorithm treats hashtag-stuffed posts as spam; a tight, relevant set of 5 outperforms a broad set of 20.
+
+**Share-per-slide on mobile**
+`expo-sharing` only supports one file at a time, and Expo Go cannot access the camera roll directly on Android. The mobile app shares whichever slide is currently visible in the carousel, keeping the flow fast (one download, one share sheet) and compatible with Expo Go without requiring a development build.
 
 **Browser cookies for YouTube transcript access**
 YouTube's bot detection blocks programmatic transcript requests from non-browser clients. Rather than routing through a proxy service, the API accepts a Netscape-format cookies file exported from a logged-in browser session. This keeps the setup self-contained with no third-party dependency.
