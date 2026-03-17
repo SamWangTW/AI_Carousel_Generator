@@ -1,6 +1,6 @@
 # AI Carousel Generator
 
-Converts a YouTube video into a ready-to-post Instagram carousel. Paste a URL, choose a tone, and get back slide images, a caption, hashtags, and a quality score — all in one API call.
+Converts a YouTube video into a ready-to-post Instagram carousel. Paste a URL and get back slide images, a caption, hashtags, and a quality score — all in one API call. The AI automatically detects the best tone for your content.
 
 ---
 
